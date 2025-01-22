@@ -53,7 +53,7 @@ app.get('/api/club-players', async (req, res) => {
   console.log(`Received ID: ${userId}`); // Log the received ID
   const dynamicQuery = gql`
   query {
-    clubs(where: {id: {equals: 1123}}){ 
+    clubs(where: {id: {equals: ${userId}}}){ 
         id
         name
 				registeredPlayers(skip: 0, take: 100) {
