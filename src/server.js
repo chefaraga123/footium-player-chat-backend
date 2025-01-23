@@ -21,6 +21,12 @@ const openai = new OpenAI({
 // Initialize GraphQL client
 const graphqlClient = new GraphQLClient('https://uat-a5c70ab25f1503bd.api.footium.club/api/graphql');
 
+// Define a session store at the top level
+let sessionData = {
+    goals: [],
+    cards: []
+};
+
 //Get a club by id
 app.get('/api/club', async (req, res) => {
     const userId = req.query.id; // Get user input for ID from query parameters
@@ -107,6 +113,8 @@ app.get('/api/player', async (req, res) => {
 // Define the /api/query route
 app.post('/api/query', async (req, res) => {
     const { playerName, chatInput } = req.body; // Destructure playerName and chatInput from the request body
+    const { goals, cards } = sessionData;
+
     try {
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -114,7 +122,12 @@ app.post('/api/query', async (req, res) => {
                 { role: "system", content: ` 
                   You are a football player named ${playerName} and you have just finished a match. You are now going to answer a series of questions about the match.
                   Your personality is like Wayne Rooney, or Marcus Rashford
-                  You are extremely irritable` 
+                  You are extremely irritable.
+                  There are ${goals.length} goals in the match.
+                  There are ${cards.length} cards in the match.
+                  The goals were scored by ${goals.map(goal => goal.goal_scorer_name).join(', ')}.
+                  The cards were given to ${cards.map(card => card.card_receiver_name).join(', ')}.
+                  ` 
                 },
                 { role: "user", content: chatInput }, // Use chatInput for the user's question
             ],
@@ -171,8 +184,6 @@ app.get('/api/sse-frames', (req, res) => {
                 const eventDescription = event.eventTypeAsString;
                 const teamInPossession = event.teamInPossession; //returns the clubId
                 const playerInPossession = event.playerInPossession; //returns the playerId
-
-
                 // Function to get player data
                 async function getPlayerData(playerId) {
                     try {
@@ -235,12 +246,13 @@ app.get('/api/sse-frames', (req, res) => {
     });
 });
 
+// SSE endpoint handler
 app.get('/api/sse-partial', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  const url_partial_match = 'https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/partial_match/2314-2-4';
+  const url_partial_match = 'https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/partial_match/2314-14-1';
   //const url_match_frames = 'https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/match_frames/2314-2-4';
 
   // Create an EventSource-like connection
@@ -261,10 +273,37 @@ app.get('/api/sse-partial', (req, res) => {
       let goals = [];
       let cards = [];
 
-      for (const event of data.state.keyEvents) {
-        console.log('event',event)
+      //console.log("data.state.players",data.state.players)
 
-        const response = await axios.get(`http://localhost:5000/api/player?playerId=${event.playerId}`);
+      // Assuming data.state.players is an array of player objects
+      const players = data.state.players;
+      for (const playerId of Object.keys(players)){
+        console.log("playerId",playerId)
+        const response = await axios.get(`http://localhost:5000/api/player?playerId=${playerId}`);
+        console.log("player response",response.data)
+      }
+
+
+      // Extracting current position and ID for each player
+      //const playerPositions = players.map(player => ({
+      //    id: player.id, // Assuming the player object has an 'id' property
+      //    position: player.currentPosition // Assuming the player object has a 'position' property
+      //}));
+
+      //console.log("Player Positions:", playerPositions);
+
+      for (const event of data.state.keyEvents) {
+        let playerId = '';
+        if (event.type == 2) {
+          playerId = event.playerId;
+          console.log('carded playerId',playerId)
+        } else if (event.type == 0) {
+          playerId = event.scorerPlayerId;
+          console.log('scored playerId',playerId)
+        }
+
+        const response = await axios.get(`http://localhost:5000/api/player?playerId=${playerId}`);
+        console.log('player response data',response.data)
         const clubId = event.clubId;
         const clubResponse = await axios.get(`http://localhost:5000/api/club?id=${clubId}`);
         console.log('clubResponse',clubResponse.data)
@@ -300,8 +339,11 @@ app.get('/api/sse-partial', (req, res) => {
         }
       }
 
+      sessionData['goals'] = goals;
+      sessionData['cards'] = cards;
+
       // Send the received data to the client, which is part of the node.js response object
-      res.write(`data: goals: ${JSON.stringify(goals)} cards: ${JSON.stringify(cards)}`); // Send valid data to the client
+      res.write(`data: goals:\n\n ${JSON.stringify(goals)}\n\ncards:\n ${JSON.stringify(cards)}`); // Send valid data to the client
 
       //res.write(`data: ${JSON.stringify(data.state.keyEvents)}\n\n`); // Send valid data to the client
 
