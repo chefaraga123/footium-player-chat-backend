@@ -19,7 +19,7 @@ const openai = new OpenAI({
 });
 
 // Initialize GraphQL client
-const graphqlClient = new GraphQLClient('https://live.api.footium.club/api/graphql');
+const graphqlClient = new GraphQLClient('https://uat-a5c70ab25f1503bd.api.footium.club/api/graphql');
 
 //Get a club by id
 app.get('/api/club', async (req, res) => {
@@ -127,7 +127,7 @@ app.post('/api/query', async (req, res) => {
 });
 
 // Define the /api/sse endpoint
-app.get('/api/sse', (req, res) => {
+app.get('/api/sse-frames', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -172,16 +172,6 @@ app.get('/api/sse', (req, res) => {
                 const teamInPossession = event.teamInPossession; //returns the clubId
                 const playerInPossession = event.playerInPossession; //returns the playerId
 
-                // Function to get club data
-                async function getClubData(clubId) {
-                    try {
-                        const response = await axios.get(`/api/club?id=${clubId}`);
-                        return response.data; // Return the club data
-                    } catch (error) {
-                        console.error('Error fetching club data:', error);
-                        return null; // Return null in case of error
-                    }
-                }
 
                 // Function to get player data
                 async function getPlayerData(playerId) {
@@ -190,7 +180,7 @@ app.get('/api/sse', (req, res) => {
                         //console.log('Player Data:', response.data);
                         return response.data; // Return the player data
                     } catch (error) {
-                        console.error('Error fetching player data:', error);
+                        //console.error('Error fetching player data:', error);
                         return null; // Return null in case of error
                     }
                 }
@@ -217,10 +207,10 @@ app.get('/api/sse', (req, res) => {
                     // Call res.end() after all data has been sent
                     res.end(); // End the response to the client
                 }
-                getPlayerInPossesionEvent();
                 // Example usage within your event handling logic
                 //const clubData = await getClubData(teamInPossession);
                 //const playerData = await getPlayerData(playerInPossession);
+                getPlayerInPossesionEvent()
 
 
                 // Log the retrieved data
@@ -244,6 +234,100 @@ app.get('/api/sse', (req, res) => {
         res.end();
     });
 });
+
+app.get('/api/sse-partial', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const url_partial_match = 'https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/partial_match/2314-2-4';
+  //const url_match_frames = 'https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/match_frames/2314-2-4';
+
+  // Create an EventSource-like connection
+  const eventSource = new EventSource(url_partial_match);
+  let messageCount = 0; // Initialize a counter for received messages
+
+  // The event source API allows a web applicato to receive real-time updates from a server via HTTP connections.
+  eventSource.onmessage = async (event) => {
+      const data = JSON.parse(event.data); // Parse the incoming JSON data
+
+      if (!data) {  // Check if the received data is falsey 
+        messageCount++; // Increment the message counter
+        return; // Exit the function if the data is an empty array
+      }
+      messageCount++; // Increment the message counter
+
+      // record the number of goals and cards in the match
+      let goals = [];
+      let cards = [];
+
+      for (const event of data.state.keyEvents) {
+        console.log('event',event)
+
+        const response = await axios.get(`http://localhost:5000/api/player?playerId=${event.playerId}`);
+        const clubId = event.clubId;
+        const clubResponse = await axios.get(`http://localhost:5000/api/club?id=${clubId}`);
+        console.log('clubResponse',clubResponse.data)
+        const clubName = clubResponse.data.clubs[0].name;
+        let playerName = '';
+        if (response.data.players[0]) {
+          playerName = response.data.players[0].fullName;
+          console.log('playerName',playerName)
+        } else {
+          console.log('playerName not found')
+        }
+
+        if (event.type == 2) {
+          cards.push(
+            {
+              "team": event.clubId,
+              "team_name": clubName,
+              "card_receiver": event.playerId,
+              "card_receiver_name": playerName,
+              "card_time": event.timestamp
+            }
+          );
+        } else if (event.type == 0) {
+          goals.push(
+            {
+              "team": event.clubId,
+              "team_name": clubName,
+              "goal_scorer": event.scorerPlayerId,
+              "goal_scorer_name": playerName,
+              "goal_time": event.timestamp
+            }
+          );
+        }
+      }
+
+      // Send the received data to the client, which is part of the node.js response object
+      res.write(`data: goals: ${JSON.stringify(goals)} cards: ${JSON.stringify(cards)}`); // Send valid data to the client
+
+      //res.write(`data: ${JSON.stringify(data.state.keyEvents)}\n\n`); // Send valid data to the client
+
+
+      // Check if we have received two messages from the first endpoint
+      if (messageCount >= 2) {
+          console.log('closing')
+          eventSource.close(); // Close the EventSource connection
+      }
+  };
+
+  // Example async function to handle data
+
+  eventSource.onerror = (error) => {
+      console.error('EventSource failed:', error);
+      eventSource.close(); // Close the connection on error
+      res.end(); // End the response to the client
+  };
+
+  // Clean up when the client disconnects
+  req.on('close', () => {
+      eventSource.close();
+      res.end();
+  });
+});
+
 
 // Start the server
 app.listen(PORT, () => {
