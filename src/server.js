@@ -30,7 +30,10 @@ let sessionData = {
     goals: [],
     cards: [],
     activePlayers: [],
-    matchDigest: ''
+    matchDigest: '',
+    fixtureId: '',
+    homeTeamWins: 0,
+    awayTeamWins: 0
 };
 
 //Get a club by id
@@ -52,7 +55,6 @@ app.get('/api/club', async (req, res) => {
 
     try {
         const data = await graphqlClient.request(dynamicQuery); // Use dynamic query
-        console.log('GraphQL Response:', data);
         res.json(data);
     } catch (error) {
         console.error('Error querying GraphQL API:', error);
@@ -60,16 +62,37 @@ app.get('/api/club', async (req, res) => {
     }
 });
 
+app.get('/api/set-fixture', async (req, res) => {
+  const fixtureId = req.query.id; // Get user input for ID from query parameters
+  sessionData['fixtureId'] = fixtureId;
+  res.json({ message: 'Fixture ID set successfully' });
+});
+
+
+app.get('/api/match-context', async (req,res) => {
+  console.log('match-context')
+  try {
+    res.json({ message: 'match context set successfully' });
+    axios.get(`http://localhost:5000/api/sse-partial`);
+    axios.get(`http://localhost:5000/api/sse-frames`);
+
+
+  } catch (error) {
+      console.error('Error fetching match context:', error);
+      res.status(500).json({ error: 'Error fetching match context', details: error.message });
+  }
+});
+
+
 //Get all players from a club
 app.get('/api/club-players', async (req, res) => {
   const userId = req.query.id; // Get user input for ID from query parameters
-  console.log(`Received ID: ${userId}`); // Log the received ID
   const dynamicQuery = gql`
   query {
     clubs(where: {id: {equals: ${userId}}}){ 
         id
         name
-				registeredPlayers(skip: 0, take: 100) {
+				registeredPlayers(skip: 0, take: 6) {
           id
         }
       }
@@ -78,10 +101,7 @@ app.get('/api/club-players', async (req, res) => {
 
   try {
       const data = await graphqlClient.request(dynamicQuery); // Use dynamic query
-      console.log('GraphQL Response:', data);
       res.json(data);
-      axios.get(`http://localhost:5000/api/sse-partial`);
-      axios.get(`http://localhost:5000/api/sse-frames`);
   } catch (error) {
       console.error('Error querying GraphQL API:', error);
       res.status(500).json({ error: 'Error querying GraphQL API', details: error.message });
@@ -121,7 +141,7 @@ app.get('/api/player', async (req, res) => {
 // Define the /api/query route
 app.post('/api/query', async (req, res) => {
     const { playerName, chatInput } = req.body; // Destructure playerName and chatInput from the request body
-    const { goals, cards, activePlayers, matchDigest } = sessionData;
+    const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = sessionData;
 
     try {
         const completion = await openai.chat.completions.create({
@@ -155,7 +175,13 @@ app.get('/api/sse-frames', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const url_match_frames = 'https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/match_frames/2314-2-4';
+
+    const matchId = sessionData['fixtureId'];
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID is required.' });
+    }
+
+    const url_match_frames = `https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/match_frames/${matchId}`;
 
     // Create an EventSource-like connection
     const eventSource = new EventSource(url_match_frames);
@@ -163,42 +189,44 @@ app.get('/api/sse-frames', (req, res) => {
 
     eventSource.onmessage = async (event) => {
         const data = JSON.parse(event.data); // Parse the incoming JSON data
-
         // Check if the received data is an empty array
         if (Array.isArray(data) && data.length === 0) {
             console.log('Received an empty list, disregarding it.');
             return; // Exit the function if the data is an empty array
         }
+        const teamNames = {
+          534: 'Rast Hexbrids',
+          8: 'Elsdalling Rovers',
+        };
         
         const sequentialEvents = data.map(event => {
+          const teamName = teamNames[event.teamInPossession] || 'Unknown Team'; // Get team name or default to 'Unknown Team'
             return `
               Type: ${event.eventTypeAsString}, 
-              Team: ${event.teamInPossession}, 
+              Team: ${teamName}, 
               Player: ${event.playerInPossession}`;
         }).join('\n'); // Join with newlines for better readability
 
-        const { homeTeamId, homeTeamName, awayTeamId, awayTeamName } = sessionData;
-        console.log("homeTeamId",homeTeamId)
-        console.log("homeTeamName",homeTeamName)
-        console.log("awayTeamId",awayTeamId)
-        console.log("awayTeamName",awayTeamName)
+        console.log("sequentialEvents",sequentialEvents)
+
+        const { homeTeamId, homeTeamName, awayTeamId, awayTeamName, homeTeamWins, awayTeamWins } = sessionData;
+
         try {
           const completion = await openai.chat.completions.create({
               model: "gpt-4o-mini",
               messages: [
                   { role: "system", content: `   
                     digest this passage of play, abstracted from a football match into a coherent narrative:
-                    ${sequentialEvents}
-                    The home team is ${homeTeamName} with id ${homeTeamId}
-                    The away team is ${awayTeamName} with id ${awayTeamId}
+                    ${sequentialEvents}. Insert the following context into the narrative:
+                    The home team is ${homeTeamName} corresponding to id ${homeTeamId}
+                    The away team is ${awayTeamName} corresponding to id ${awayTeamId}
+                    The home team has ${homeTeamWins} wins.
+                    The away team has ${awayTeamWins} wins.
+                    The team for which the number of wins is 1 is the winner of the match
                   ` 
                   }
               ],
           });
-          console.log("completion")
-          console.log("_____________________")
-          console.log("output", completion.choices[0].message.content);
-          console.log("_____________________")
           sessionData['matchDigest'] = completion.choices[0].message.content;
 
         } catch (error) {
@@ -233,8 +261,14 @@ app.get('/api/sse-partial', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  const matchId = sessionData['fixtureId'];
 
-  const url_partial_match = 'https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/partial_match/2314-14-1';
+  if (!matchId) {
+    return res.status(400).json({ error: 'Match ID is required.' });
+}
+
+
+  const url_partial_match = `https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/partial_match/${matchId}`;
 
   // Create an EventSource-like connection
   const eventSource = new EventSource(url_partial_match);
@@ -242,10 +276,13 @@ app.get('/api/sse-partial', (req, res) => {
 
   // The event source API allows a web applicato to receive real-time updates from a server via HTTP connections.
   eventSource.onmessage = async (event) => {
-      const data = JSON.parse(event.data); // Parse the incoming JSON data
-      //console.log("data test",data)
+  const data = JSON.parse(event.data); // Parse the incoming JSON data
+
+
       if (data){
-        console.log("KEYS",Object.keys(data))
+        sessionData['homeTeamWins'] = data.state.homeTeam.stats.wins
+        sessionData['awayTeamWins'] = data.state.awayTeam.stats.wins
+
         const homeTeamId = data.state.homeTeam.clubId;
         const awayTeamId = data.state.awayTeam.clubId;
 
