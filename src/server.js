@@ -80,8 +80,8 @@ app.get('/api/club-players', async (req, res) => {
       const data = await graphqlClient.request(dynamicQuery); // Use dynamic query
       console.log('GraphQL Response:', data);
       res.json(data);
-      const response = await axios.get(`http://localhost:5000/api/sse-partial`);
-
+      axios.get(`http://localhost:5000/api/sse-partial`);
+      axios.get(`http://localhost:5000/api/sse-frames`);
   } catch (error) {
       console.error('Error querying GraphQL API:', error);
       res.status(500).json({ error: 'Error querying GraphQL API', details: error.message });
@@ -339,9 +339,6 @@ app.get('/api/sse-partial', (req, res) => {
 
       // Send the received data to the client, which is part of the node.js response object
       res.write(`data: goals:\n\n ${JSON.stringify(goals)}\n\ncards:\n ${JSON.stringify(cards)}`); // Send valid data to the client
-
-      //res.write(`data: ${JSON.stringify(data.state.keyEvents)}\n\n`); // Send valid data to the client
-
 
       // Check if we have received two messages from the first endpoint
       if (messageCount >= 2) {
