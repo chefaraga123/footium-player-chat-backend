@@ -63,12 +63,9 @@ app.get('/api/club', async (req, res) => {
 });
 
 app.get('/api/set-fixture', async (req, res) => {
-  console.log("TEST 2")
   const fixtureId = req.query.id; // Get user input for ID from query parameters
   sessionData['fixtureId'] = fixtureId;
-  console.log("TEST 3")
   res.json({ message: 'Fixture ID set successfully' });
-  console.log("TEST 4")
 });
 
 
@@ -131,7 +128,6 @@ app.get('/api/player', async (req, res) => {
 
     try {
         const data = await graphqlClient.request(playerQuery); // Use dynamic query
-        console.log("data",data)
         res.json(data);
     } catch (error) {
         console.error('Error querying GraphQL API for player:', error);
@@ -214,11 +210,7 @@ app.get('/api/sse-frames', (req, res) => {
 
         const { homeTeamId, homeTeamName, awayTeamId, awayTeamName, homeTeamWins, awayTeamWins } = sessionData;
 
-        try {
-          const completion = await openai.chat.completions.create({
-              model: "gpt-4o-mini",
-              messages: [
-                  { role: "system", content: `   
+        const message = `   
                     digest this passage of play, abstracted from a football match into a coherent narrative:
                     ${sequentialEvents}. Insert the following context into the narrative:
                     The home team is ${homeTeamName} corresponding to id ${homeTeamId}
@@ -227,6 +219,12 @@ app.get('/api/sse-frames', (req, res) => {
                     The away team has ${awayTeamWins} wins.
                     The team for which the number of wins is 1 is the winner of the match
                   ` 
+        console.log("message", message)
+        try {
+          const completion = await openai.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: [
+                  { role: "system", content: message
                   }
               ],
           });
@@ -236,6 +234,7 @@ app.get('/api/sse-frames', (req, res) => {
             console.error('Error querying OpenAI API:', error);
             res.status(500).json({ error: 'Error querying OpenAI API', details: error.message });
         }
+        
 
         res.write(`data: ${sequentialEvents}\n\n`);
         messageCount++; // Increment the message counter
@@ -396,7 +395,6 @@ app.get('/api/sse-partial', (req, res) => {
 app.get('/api/recent-fixture', async (req, res) => {
 
   const clubId = req.query.clubId;
-  console.log("clubId 2",clubId)
 
   const tournamentQuery = gql`
   query {
@@ -434,14 +432,11 @@ app.get('/api/recent-fixture', async (req, res) => {
 app.get('/api/club-players-fixture', async (req, res) => {
   
   const clubId = req.query.clubId;
-  console.log("clubId",clubId)
 
   const matchResponse = await axios.get(`http://localhost:5000/api/recent-fixture?clubId=${clubId}`);
   const matchId = matchResponse.data; // Adjust based on the actual response structure
-  console.log("matchId", matchId);
 
   const clubPlayers = await axios.get(`http://localhost:5000/api/club-players?id=${clubId}`);
-  console.log("clubPlayers",clubPlayers.data.clubs[0].registeredPlayers)
   
   await axios.get(`http://localhost:5000/api/set-fixture?id=${matchId}`);
 
