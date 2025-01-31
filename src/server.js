@@ -63,9 +63,12 @@ app.get('/api/club', async (req, res) => {
 });
 
 app.get('/api/set-fixture', async (req, res) => {
+  console.log("TEST 2")
   const fixtureId = req.query.id; // Get user input for ID from query parameters
   sessionData['fixtureId'] = fixtureId;
+  console.log("TEST 3")
   res.json({ message: 'Fixture ID set successfully' });
+  console.log("TEST 4")
 });
 
 
@@ -128,6 +131,7 @@ app.get('/api/player', async (req, res) => {
 
     try {
         const data = await graphqlClient.request(playerQuery); // Use dynamic query
+        console.log("data",data)
         res.json(data);
     } catch (error) {
         console.error('Error querying GraphQL API for player:', error);
@@ -437,12 +441,15 @@ app.get('/api/club-players-fixture', async (req, res) => {
   console.log("matchId", matchId);
 
   const clubPlayers = await axios.get(`http://localhost:5000/api/club-players?id=${clubId}`);
-  console.log("clubPlayers",clubPlayers.data)
+  console.log("clubPlayers",clubPlayers.data.clubs[0].registeredPlayers)
+  
+  await axios.get(`http://localhost:5000/api/set-fixture?id=${matchId}`);
 
-  const setFixture = await axios.get(`http://localhost:5000/api/set-fixture?id=${matchId}`);
+  await axios.get(`http://localhost:5000/api/match-context`);
 
-  const matchContext = await axios.get(`http://localhost:5000/api/match-context`);
-
+  res.json({
+    matchId: matchId, 
+    clubPlayers: clubPlayers.data.clubs[0].registeredPlayers});
 })
 
 // Start the server
