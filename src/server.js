@@ -70,7 +70,6 @@ app.get('/api/set-fixture', async (req, res) => {
 
 
 app.get('/api/match-context', async (req,res) => {
-  console.log('match-context')
   try {
     res.json({ message: 'match context set successfully' });
     axios.get(`http://localhost:5000/api/sse-partial`);
@@ -111,7 +110,6 @@ app.get('/api/club-players', async (req, res) => {
 // Define the /api/player route
 app.get('/api/player', async (req, res) => {
     const playerId = req.query.playerId; // Get user input for playerId from query parameters
-    console.log(`Received Player ID: ${playerId}`); // Log the received Player ID
     const playerQuery = gql`
     query {
       players(where: {id: {equals: "${playerId}"}}) {
@@ -130,7 +128,6 @@ app.get('/api/player', async (req, res) => {
 
     try {
         const data = await graphqlClient.request(playerQuery); // Use dynamic query
-        console.log('GraphQL Player Response:', data);
         res.json(data);
     } catch (error) {
         console.error('Error querying GraphQL API for player:', error);
@@ -142,14 +139,12 @@ app.get('/api/player', async (req, res) => {
 app.post('/api/query', async (req, res) => {
     const { playerName, chatInput } = req.body; // Destructure playerName and chatInput from the request body
     const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = sessionData;
-
     try {
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
                 { role: "system", content: ` 
                   You are a football player named ${playerName} and you have just finished a match. You are now going to answer a series of questions about the match.
-                  Your personality is like Wayne Rooney, or Marcus Rashford
                   You are extremely irritable.
                   There are ${goals.length} goals in the match.
                   There are ${cards.length} cards in the match.
@@ -169,18 +164,22 @@ app.post('/api/query', async (req, res) => {
     }
 });
 
+app.get('/api/match-digest', async (req, res) => {
+  res.json({ matchDigest: sessionData['matchDigest'] });
+});
+
 // Define the /api/sse endpoint
 app.get('/api/sse-frames', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-
     const matchId = sessionData['fixtureId'];
     if (!matchId) {
       return res.status(400).json({ error: 'Match ID is required.' });
     }
 
+    // Note: a match-id: tournamentId-roundIndex-fixtureIndex
     const url_match_frames = `https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/match_frames/${matchId}`;
 
     // Create an EventSource-like connection
@@ -194,6 +193,8 @@ app.get('/api/sse-frames', (req, res) => {
             console.log('Received an empty list, disregarding it.');
             return; // Exit the function if the data is an empty array
         }
+
+        // query here: 
         const teamNames = {
           534: 'Rast Hexbrids',
           8: 'Elsdalling Rovers',
@@ -206,8 +207,6 @@ app.get('/api/sse-frames', (req, res) => {
               Team: ${teamName}, 
               Player: ${event.playerInPossession}`;
         }).join('\n'); // Join with newlines for better readability
-
-        console.log("sequentialEvents",sequentialEvents)
 
         const { homeTeamId, homeTeamName, awayTeamId, awayTeamName, homeTeamWins, awayTeamWins } = sessionData;
 
@@ -265,8 +264,7 @@ app.get('/api/sse-partial', (req, res) => {
 
   if (!matchId) {
     return res.status(400).json({ error: 'Match ID is required.' });
-}
-
+  }
 
   const url_partial_match = `https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/partial_match/${matchId}`;
 
@@ -300,7 +298,6 @@ app.get('/api/sse-partial', (req, res) => {
 
       }
 
-
       if (!data) {  // Check if the received data is falsey 
         messageCount++; // Increment the message counter
         return; // Exit the function if the data is an empty array
@@ -310,8 +307,6 @@ app.get('/api/sse-partial', (req, res) => {
       // record the number of goals and cards in the match
       let goals = [];
       let cards = [];
-
-      //console.log("data.state.players",data.state.players)
 
       // Assuming data.state.players is an array of player objects
       const players = data.state.players;
@@ -328,24 +323,18 @@ app.get('/api/sse-partial', (req, res) => {
         let playerId = '';
         if (event.type == 2) {
           playerId = event.playerId;
-          //console.log('carded playerId',playerId)
         } else if (event.type == 0) {
           playerId = event.scorerPlayerId;
-          //console.log('scored playerId',playerId)
         }
 
         const response = await axios.get(`http://localhost:5000/api/player?playerId=${playerId}`);
-        //console.log('player response data',response.data)
         const clubId = event.clubId;
         const clubResponse = await axios.get(`http://localhost:5000/api/club?id=${clubId}`);
-        //console.log('clubResponse',clubResponse.data)
         const clubName = clubResponse.data.clubs[0].name;
         let playerName = '';
         if (response.data.players[0]) {
           playerName = response.data.players[0].fullName;
-          //console.log('playerName',playerName)
         } else {
-          //console.log('playerName not found')
         }
 
         if (event.type == 2) {
@@ -382,12 +371,6 @@ app.get('/api/sse-partial', (req, res) => {
           console.log('closing')
           eventSource.close(); // Close the EventSource connection
       }
-
-      console.log("homeTeamId",sessionData['homeTeamId'])
-      console.log("homeTeamName",sessionData['homeTeamName'])
-      console.log("awayTeamId",sessionData['awayTeamId'])
-      console.log("awayTeamName",sessionData['awayTeamName'])
-
   };
 
   // Example async function to handle data
@@ -405,6 +388,62 @@ app.get('/api/sse-partial', (req, res) => {
   });
 });
 
+//Get a club by id
+app.get('/api/recent-fixture', async (req, res) => {
+
+  const clubId = req.query.clubId;
+  console.log("clubId 2",clubId)
+
+  const tournamentQuery = gql`
+  query {
+    clubs(where: {id: {equals: ${clubId}}}) {
+      clubFixtures(
+        orderBy: { fixtureId: desc }
+        take: 1
+      ) {
+        fixture {
+          tournamentId
+          roundIndex
+          fixtureIndex
+        }
+      }
+    }
+  }
+  `; // Use dynamic ID in the query
+
+  try {
+      const tournamentData = await graphqlClient.request(tournamentQuery); // Use dynamic query      
+      const fixture = tournamentData.clubs[0].clubFixtures[0].fixture
+      const tournamentId = fixture.tournamentId
+      const roundIndex = fixture.roundIndex
+      const fixtureIndex = fixture.fixtureIndex
+      const matchId = tournamentId+"-"+roundIndex+"-"+fixtureIndex
+
+      res.json(matchId);
+  } catch (error) {
+      console.error('Error querying GraphQL API:', error);
+      res.status(500).json({ error: 'Error querying GraphQL API', details: error.message });
+  }
+});
+
+
+app.get('/api/club-players-fixture', async (req, res) => {
+  
+  const clubId = req.query.clubId;
+  console.log("clubId",clubId)
+
+  const matchResponse = await axios.get(`http://localhost:5000/api/recent-fixture?clubId=${clubId}`);
+  const matchId = matchResponse.data; // Adjust based on the actual response structure
+  console.log("matchId", matchId);
+
+  const clubPlayers = await axios.get(`http://localhost:5000/api/club-players?id=${clubId}`);
+  console.log("clubPlayers",clubPlayers.data)
+
+  const setFixture = await axios.get(`http://localhost:5000/api/set-fixture?id=${matchId}`);
+
+  const matchContext = await axios.get(`http://localhost:5000/api/match-context`);
+
+})
 
 // Start the server
 app.listen(PORT, () => {
