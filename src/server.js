@@ -144,17 +144,42 @@ app.get('/api/player', async (req, res) => {
 app.post('/api/query', async (req, res) => {
     const { playerName, chatInput } = req.body; // Destructure playerName and chatInput from the request body
     const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = sessionData;
+    //console.log("goals", goals)
+    const numberOfGoals = goals.length;
+    const numberOfCards = cards.length;
+    const numberOfActivePlayers = activePlayers.length;
+    //console.log("numberOfGoals", numberOfGoals)
+    //console.log("numberOfCards", numberOfCards)
+    console.log("numberOfActivePlayers", numberOfActivePlayers)
+    const goalScorers = goals.map(goal => `${goal.goal_scorer_name} from ${goal.team_name}`).join(', ');
+    const goalCounts = goals.reduce((acc, goal) => {
+        acc[goal.team_name] = (acc[goal.team_name] || 0) + 1; // Increment the count for the team
+        return acc;
+    }, {});
+
+    // Now you can use goalCounts to get the number of goals for each team
+    const scoreGeneration = Object.entries(goalCounts)
+        .map(([team, count]) => `${team}: ${count}`)
+        .join(', ');
+
+    const card_receivers = cards.map(card => card.card_receiver_name).join(', ');
+
     try {
         const completion = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
                 { role: "system", content: ` 
-                  You are a football player named ${playerName} and you have just finished a match. You are now going to answer a series of questions about the match.
+                  You are a football player named ${playerName} and you have just finished a match. 
+                  You are now going to answer a series of questions about the match.
                   You are extremely irritable.
+
                   There are ${goals.length} goals in the match.
                   There are ${cards.length} cards in the match.
-                  The goals were scored by ${goals.map(goal => goal.goal_scorer_name).join(', ')}.
-                  The cards were given to ${cards.map(card => card.card_receiver_name).join(', ')}.
+
+                  The goals were scored by ${goalScorers}.
+                  The score at the end was ${scoreGeneration}.
+
+                  The cards were given to ${card_receivers}.
                   The active players are ${activePlayers.map(player => player.playerName).join(', ')}.
                   The match digest is ${matchDigest}
                   ` 
@@ -162,7 +187,7 @@ app.post('/api/query', async (req, res) => {
                 { role: "user", content: chatInput }, // Use chatInput for the user's question
             ],
         });
-        console.log("completion.choices[0].message.content", completion.choices[0].message.content)
+        //console.log("completion.choices[0].message.content", completion.choices[0].message.content)
         res.json({ output: completion.choices[0].message.content });
     } catch (error) {
         console.error('Error querying OpenAI API:', error);
@@ -240,7 +265,7 @@ app.get('/api/sse-frames', (req, res) => {
               ],
           });
           sessionData['matchDigest'] = completion.choices[0].message.content;
-          console.log("sessionData['matchDigest']", sessionData['matchDigest'])
+          //console.log("sessionData['matchDigest']", sessionData['matchDigest'])
         } catch (error) {
             console.error('Error querying OpenAI API:', error);
             res.status(500).json({ error: 'Error querying OpenAI API', details: error.message });
