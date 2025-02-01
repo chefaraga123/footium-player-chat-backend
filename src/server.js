@@ -72,10 +72,15 @@ app.get('/api/set-fixture', async (req, res) => {
 app.get('/api/match-context', async (req,res) => {
   try {
     res.json({ message: 'match context set successfully' });
-    axios.get(`http://localhost:5000/api/sse-partial`);
-    axios.get(`http://localhost:5000/api/sse-frames`);
-
-
+    axios.get(`http://localhost:5000/api/sse-partial`)
+      .then(response => {
+        return axios.get(`http://localhost:5000/api/sse-frames`);
+      })
+      .then(response => {
+      })
+      .catch(error => {
+        console.error('Error fetching data:', error);
+      });
   } catch (error) {
       console.error('Error fetching match context:', error);
       res.status(500).json({ error: 'Error fetching match context', details: error.message });
@@ -157,6 +162,7 @@ app.post('/api/query', async (req, res) => {
                 { role: "user", content: chatInput }, // Use chatInput for the user's question
             ],
         });
+        console.log("completion.choices[0].message.content", completion.choices[0].message.content)
         res.json({ output: completion.choices[0].message.content });
     } catch (error) {
         console.error('Error querying OpenAI API:', error);
@@ -194,32 +200,37 @@ app.get('/api/sse-frames', (req, res) => {
             return; // Exit the function if the data is an empty array
         }
 
-        // query here: 
+        const { 
+          homeTeamId, 
+          homeTeamName, 
+          awayTeamId, 
+          awayTeamName, 
+          homeTeamWins, 
+          awayTeamWins
+        } = sessionData;
+
         const teamNames = {
-          534: 'Rast Hexbrids',
-          8: 'Elsdalling Rovers',
+          [homeTeamId]: homeTeamName,
+          [awayTeamId]: awayTeamName,
         };
-        
+
         const sequentialEvents = data.map(event => {
-          const teamName = teamNames[event.teamInPossession] || 'Unknown Team'; // Get team name or default to 'Unknown Team'
-            return `
+          const teamName = teamNames[`${event.teamInPossession}`] || 'Unknown Team'; // Get team name or default to 'Unknown Team'
+          return `
               Type: ${event.eventTypeAsString}, 
               Team: ${teamName}, 
               Player: ${event.playerInPossession}`;
         }).join('\n'); // Join with newlines for better readability
 
-        const { homeTeamId, homeTeamName, awayTeamId, awayTeamName, homeTeamWins, awayTeamWins } = sessionData;
-
         const message = `   
                     digest this passage of play, abstracted from a football match into a coherent narrative:
                     ${sequentialEvents}. Insert the following context into the narrative:
-                    The home team is ${homeTeamName} corresponding to id ${homeTeamId}
-                    The away team is ${awayTeamName} corresponding to id ${awayTeamId}
+                    The home team is ${homeTeamName} 
+                    The away team is ${awayTeamName}
                     The home team has ${homeTeamWins} wins.
                     The away team has ${awayTeamWins} wins.
                     The team for which the number of wins is 1 is the winner of the match
                   ` 
-        console.log("message", message)
         try {
           const completion = await openai.chat.completions.create({
               model: "gpt-4o-mini",
@@ -229,12 +240,11 @@ app.get('/api/sse-frames', (req, res) => {
               ],
           });
           sessionData['matchDigest'] = completion.choices[0].message.content;
-
+          console.log("sessionData['matchDigest']", sessionData['matchDigest'])
         } catch (error) {
             console.error('Error querying OpenAI API:', error);
             res.status(500).json({ error: 'Error querying OpenAI API', details: error.message });
         }
-        
 
         res.write(`data: ${sequentialEvents}\n\n`);
         messageCount++; // Increment the message counter
