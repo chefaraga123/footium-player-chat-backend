@@ -118,6 +118,7 @@ app.get('/api/player', async (req, res) => {
     const playerQuery = gql`
     query {
       players(where: {id: {equals: "${playerId}"}}) {
+        id
         fullName
         club {
           id
@@ -142,14 +143,14 @@ app.get('/api/player', async (req, res) => {
 
 // Define the /api/query route
 app.post('/api/query', async (req, res) => {
-    const { playerName, chatInput } = req.body; // Destructure playerName and chatInput from the request body
+    const { playerName, playerId, chatInput } = req.body; // Destructure playerName and chatInput from the request body
     const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = sessionData;
-    //console.log("goals", goals)
+
     const numberOfGoals = goals.length;
     const numberOfCards = cards.length;
     const numberOfActivePlayers = activePlayers.length;
-    //console.log("numberOfGoals", numberOfGoals)
-    //console.log("numberOfCards", numberOfCards)
+    console.log('activePlayers',activePlayers)
+
     console.log("numberOfActivePlayers", numberOfActivePlayers)
     const goalScorers = goals.map(goal => `${goal.goal_scorer_name} from ${goal.team_name}`).join(', ');
     const goalCounts = goals.reduce((acc, goal) => {
@@ -163,6 +164,11 @@ app.post('/api/query', async (req, res) => {
         .join(', ');
 
     const card_receivers = cards.map(card => card.card_receiver_name).join(', ');
+
+    //Get the player's context: 
+    const playerContext = await axios.get(`http://localhost:5000/api/player?playerId=${playerId}`);
+    console.log("playerContext", playerContext.data)
+
 
     try {
         const completion = await openai.chat.completions.create({
@@ -314,7 +320,6 @@ app.get('/api/sse-partial', (req, res) => {
   eventSource.onmessage = async (event) => {
   const data = JSON.parse(event.data); // Parse the incoming JSON data
 
-
       if (data){
         sessionData['homeTeamWins'] = data.state.homeTeam.stats.wins
         sessionData['awayTeamWins'] = data.state.awayTeam.stats.wins
@@ -350,9 +355,12 @@ app.get('/api/sse-partial', (req, res) => {
       const players = data.state.players;
       for (const playerId of Object.keys(players)){
         const response = await axios.get(`http://localhost:5000/api/player?playerId=${playerId}`);
+        console.log("player-context",response.data.players[0])
           sessionData['activePlayers'].push(
           {
             "playerName": response.data.players[0].fullName,
+            "playerId": playerId,
+            "playerClub": response.data.players[0].club.id
           }
         )
       }
