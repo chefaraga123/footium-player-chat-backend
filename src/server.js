@@ -10,6 +10,8 @@ dotenv.config(); // Load environment variables from .env file
 
 const app = express();
 const PORT = 5000;
+const apiEndpoint = process.env.API_ENDPOINT || "http://localhost:5000"
+console.log("apiEndpoint", apiEndpoint)
 
 app.use(cors());
 app.use(express.json());
@@ -72,9 +74,9 @@ app.get('/api/set-fixture', async (req, res) => {
 app.get('/api/match-context', async (req,res) => {
   try {
     res.json({ message: 'match context set successfully' });
-    axios.get(`http://localhost:5000/api/sse-partial`)
+    axios.get(`${apiEndpoint}/api/sse-partial`)
       .then(response => {
-        return axios.get(`http://localhost:5000/api/sse-frames`);
+        return axios.get(`${apiEndpoint}/api/sse-frames`);
       })
       .then(response => {
       })
@@ -146,12 +148,10 @@ app.post('/api/query', async (req, res) => {
     const { playerName, playerId, chatInput } = req.body; // Destructure playerName and chatInput from the request body
     const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = sessionData;
 
-    const numberOfGoals = goals.length;
-    const numberOfCards = cards.length;
     const numberOfActivePlayers = activePlayers.length;
-    console.log('activePlayers',activePlayers)
+    //console.log('activePlayers',activePlayers)
 
-    console.log("numberOfActivePlayers", numberOfActivePlayers)
+    //console.log("numberOfActivePlayers", numberOfActivePlayers)
     const goalScorers = goals.map(goal => `${goal.goal_scorer_name} from ${goal.team_name}`).join(', ');
     const goalCounts = goals.reduce((acc, goal) => {
         acc[goal.team_name] = (acc[goal.team_name] || 0) + 1; // Increment the count for the team
@@ -166,8 +166,8 @@ app.post('/api/query', async (req, res) => {
     const card_receivers = cards.map(card => card.card_receiver_name).join(', ');
 
     //Get the player's context: 
-    const playerContext = await axios.get(`http://localhost:5000/api/player?playerId=${playerId}`);
-    console.log("playerContext", playerContext.data)
+    const playerContext = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
+    //console.log("playerContext", playerContext.data)
 
 
     try {
@@ -270,8 +270,10 @@ app.get('/api/sse-frames', (req, res) => {
                   }
               ],
           });
+          console.log("TEST",completion.choices[0].message.content)
+
           sessionData['matchDigest'] = completion.choices[0].message.content;
-          //console.log("sessionData['matchDigest']", sessionData['matchDigest'])
+          console.log("sessionData['matchDigest']", sessionData['matchDigest'])
         } catch (error) {
             console.error('Error querying OpenAI API:', error);
             res.status(500).json({ error: 'Error querying OpenAI API', details: error.message });
@@ -330,10 +332,10 @@ app.get('/api/sse-partial', (req, res) => {
         sessionData['homeTeamId'] = homeTeamId;
         sessionData['awayTeamId'] = awayTeamId;
 
-        const homeTeamResponse = await axios.get(`http://localhost:5000/api/club?id=${homeTeamId}`);
+        const homeTeamResponse = await axios.get(`${apiEndpoint}/api/club?id=${homeTeamId}`);
         const homeTeamName = homeTeamResponse.data.clubs[0].name;
 
-        const awayTeamResponse = await axios.get(`http://localhost:5000/api/club?id=${awayTeamId}`);
+        const awayTeamResponse = await axios.get(`${apiEndpoint}/api/club?id=${awayTeamId}`);
         const awayTeamName = awayTeamResponse.data.clubs[0].name;
 
         sessionData['homeTeamName'] = homeTeamName;
@@ -354,8 +356,8 @@ app.get('/api/sse-partial', (req, res) => {
       // Assuming data.state.players is an array of player objects
       const players = data.state.players;
       for (const playerId of Object.keys(players)){
-        const response = await axios.get(`http://localhost:5000/api/player?playerId=${playerId}`);
-        console.log("player-context",response.data.players[0])
+        const response = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
+        //console.log("player-context",response.data.players[0])
           sessionData['activePlayers'].push(
           {
             "playerName": response.data.players[0].fullName,
@@ -373,9 +375,9 @@ app.get('/api/sse-partial', (req, res) => {
           playerId = event.scorerPlayerId;
         }
 
-        const response = await axios.get(`http://localhost:5000/api/player?playerId=${playerId}`);
+        const response = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
         const clubId = event.clubId;
-        const clubResponse = await axios.get(`http://localhost:5000/api/club?id=${clubId}`);
+        const clubResponse = await axios.get(`${apiEndpoint}/api/club?id=${clubId}`);
         const clubName = clubResponse.data.clubs[0].name;
         let playerName = '';
         if (response.data.players[0]) {
@@ -476,14 +478,14 @@ app.get('/api/club-players-fixture', async (req, res) => {
   
   const clubId = req.query.clubId;
 
-  const matchResponse = await axios.get(`http://localhost:5000/api/recent-fixture?clubId=${clubId}`);
+  const matchResponse = await axios.get(`${apiEndpoint}/api/recent-fixture?clubId=${clubId}`);
   const matchId = matchResponse.data; // Adjust based on the actual response structure
 
-  const clubPlayers = await axios.get(`http://localhost:5000/api/club-players?id=${clubId}`);
+  const clubPlayers = await axios.get(`${apiEndpoint}/api/club-players?id=${clubId}`);
   
-  await axios.get(`http://localhost:5000/api/set-fixture?id=${matchId}`);
+  await axios.get(`${apiEndpoint}/api/set-fixture?id=${matchId}`);
 
-  await axios.get(`http://localhost:5000/api/match-context`);
+  await axios.get(`${apiEndpoint}/api/match-context`);
 
   res.json({
     matchId: matchId, 
