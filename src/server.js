@@ -11,7 +11,8 @@ dotenv.config(); // Load environment variables from .env file
 const app = express();
 const PORT = 5000;
 const apiEndpoint = process.env.API_ENDPOINT || "http://localhost:5000"
-console.log("apiEndpoint", apiEndpoint)
+const graphQLEndpoint = process.env.QRAPHGQL_ENDPOINT || "https://uat-a5c70ab25f1503bd.api.footium.club/api/graphql"
+const matchEndpoint = process.env.MATCH_ENDPOINT || "https://uat-a5c70ab25f1503bd.api.footium.club/api/sse"
 
 app.use(cors());
 app.use(express.json());
@@ -21,7 +22,7 @@ const openai = new OpenAI({
 });
 
 // Initialize GraphQL client
-const graphqlClient = new GraphQLClient('https://uat-a5c70ab25f1503bd.api.footium.club/api/graphql');
+const graphqlClient = new GraphQLClient(`${graphQLEndpoint}`);
 
 // Define a session store at the top level
 let sessionData = {
@@ -36,6 +37,40 @@ let sessionData = {
     fixtureId: '',
     homeTeamWins: 0,
     awayTeamWins: 0
+};
+
+// Define personalities
+const personalities = [
+  {
+    id: 1,
+    name: "Aggressive",
+    description: "You are aggressive and always looking to dominate the game."
+  },
+  {
+    id: 2,
+    name: "Calm",
+    description: "You remain calm under pressure and make thoughtful decisions."
+  },
+  {
+    id: 3,
+    name: "Cheerful",
+    description: "You are always cheerful and encourage your teammates."
+  },
+  // Add more personalities as needed
+];
+
+const hash = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  return hash;
+};
+
+const assignPersonality = (playerId) => {
+  const index = Math.abs(hash(playerId)) % personalities.length; // Ensure index is within bounds
+  return personalities[index];
 };
 
 //Get a club by id
@@ -148,10 +183,10 @@ app.post('/api/query', async (req, res) => {
     const { playerName, playerId, chatInput } = req.body; // Destructure playerName and chatInput from the request body
     const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = sessionData;
 
-    const numberOfActivePlayers = activePlayers.length;
-    //console.log('activePlayers',activePlayers)
+    console.log("TEST")
 
-    //console.log("numberOfActivePlayers", numberOfActivePlayers)
+    const numberOfActivePlayers = activePlayers.length;
+
     const goalScorers = goals.map(goal => `${goal.goal_scorer_name} from ${goal.team_name}`).join(', ');
     const goalCounts = goals.reduce((acc, goal) => {
         acc[goal.team_name] = (acc[goal.team_name] || 0) + 1; // Increment the count for the team
@@ -168,7 +203,7 @@ app.post('/api/query', async (req, res) => {
     //Get the player's context: 
     const playerContext = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
     //console.log("playerContext", playerContext.data)
-
+    console.log("assignPersonality(playerId)", assignPersonality(playerId))
 
     try {
         const completion = await openai.chat.completions.create({
@@ -177,7 +212,7 @@ app.post('/api/query', async (req, res) => {
                 { role: "system", content: ` 
                   You are a football player named ${playerName} and you have just finished a match. 
                   You are now going to answer a series of questions about the match.
-                  You are extremely irritable.
+                  Your personality is ${assignPersonality(playerId).description}.
 
                   There are ${goals.length} goals in the match.
                   There are ${cards.length} cards in the match.
@@ -217,7 +252,7 @@ app.get('/api/sse-frames', (req, res) => {
     }
 
     // Note: a match-id: tournamentId-roundIndex-fixtureIndex
-    const url_match_frames = `https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/match_frames/${matchId}`;
+    const url_match_frames = `${matchEndpoint}/api/sse/match_frames/${matchId}`;
 
     // Create an EventSource-like connection
     const eventSource = new EventSource(url_match_frames);
@@ -356,15 +391,15 @@ app.get('/api/sse-partial', (req, res) => {
       // Assuming data.state.players is an array of player objects
       const players = data.state.players;
       for (const playerId of Object.keys(players)){
-        const response = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
-        //console.log("player-context",response.data.players[0])
-          sessionData['activePlayers'].push(
-          {
-            "playerName": response.data.players[0].fullName,
-            "playerId": playerId,
-            "playerClub": response.data.players[0].club.id
-          }
-        )
+          const response = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
+          //console.log("player-context",response.data.players[0])
+            sessionData['activePlayers'].push(
+            {
+              "playerName": response.data.players[0].fullName,
+              "playerId": playerId,
+              "playerClub": response.data.players[0].club.id
+            }
+          )
       }
 
       for (const event of data.state.keyEvents) {
@@ -446,7 +481,7 @@ app.get('/api/recent-fixture', async (req, res) => {
     clubs(where: {id: {equals: ${clubId}}}) {
       clubFixtures(
         orderBy: { fixtureId: desc }
-        take: 1
+        take: 22
       ) {
         fixture {
           tournamentId
@@ -459,12 +494,14 @@ app.get('/api/recent-fixture', async (req, res) => {
   `; // Use dynamic ID in the query
 
   try {
-      const tournamentData = await graphqlClient.request(tournamentQuery); // Use dynamic query      
+      const tournamentData = await graphqlClient.request(tournamentQuery); // Use dynamic query    
+      console.log("tournamentData", tournamentData.clubs[0].clubFixtures[0])
       const fixture = tournamentData.clubs[0].clubFixtures[0].fixture
       const tournamentId = fixture.tournamentId
       const roundIndex = fixture.roundIndex
       const fixtureIndex = fixture.fixtureIndex
       const matchId = tournamentId+"-"+roundIndex+"-"+fixtureIndex
+      console.log("matchId", matchId)
 
       res.json(matchId);
   } catch (error) {
@@ -483,9 +520,13 @@ app.get('/api/club-players-fixture', async (req, res) => {
 
   const clubPlayers = await axios.get(`${apiEndpoint}/api/club-players?id=${clubId}`);
   
-  await axios.get(`${apiEndpoint}/api/set-fixture?id=${matchId}`);
-
-  await axios.get(`${apiEndpoint}/api/match-context`);
+  try {
+    await axios.get(`${apiEndpoint}/api/set-fixture?id=${matchId}`);
+    await axios.get(`${apiEndpoint}/api/match-context`);
+  } catch (error) {
+    console.error('Error querying API for player:', error);
+    res.status(500).json({ error: 'Error querying API for player', details: error.message });
+  }
 
   res.json({
     matchId: matchId, 
