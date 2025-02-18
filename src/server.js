@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 import { GraphQLClient, gql } from 'graphql-request';
 import axios from 'axios'; // Ensure axios is imported
 import { EventSource } from 'eventsource'; // Use named import for EventSource
+import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 
 dotenv.config(); // Load environment variables from .env file
 
@@ -13,6 +15,25 @@ const PORT = 5000;
 const apiEndpoint = process.env.API_ENDPOINT || "http://localhost:5000"
 const graphQLEndpoint = process.env.QRAPHGQL_ENDPOINT || "https://uat-a5c70ab25f1503bd.api.footium.club/api/graphql"
 const matchEndpoint = process.env.MATCH_ENDPOINT || "https://uat-a5c70ab25f1503bd.api.footium.club/api/sse"
+const JWT_SECRET = process.env.JWT_SECRET
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI, { // Add your MongoDB URI in .env
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log('MongoDB connected'))
+.catch(err => console.error('MongoDB connection error:', err));
+
+// Define a Mongoose schema and model for user inputs
+const userInputSchema = new mongoose.Schema({
+  walletAddress: { type: String, required: true },
+  clubId: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now },
+  message: { type: String, required: true },
+});
+
+const UserInput = mongoose.model('UserInput', userInputSchema);
 
 app.use(cors());
 app.use(express.json());
@@ -72,6 +93,16 @@ const assignPersonality = (playerId) => {
   const index = Math.abs(hash(playerId)) % personalities.length; // Ensure index is within bounds
   return personalities[index];
 };
+
+app.post('/api/authenticate', (req, res) => {
+  const { walletAddress } = req.body; // Get the wallet address from the request body
+
+  // Here you can add additional checks, e.g., verify the wallet address
+
+  // Create a token
+  const token = jwt.sign({ walletAddress }, JWT_SECRET, { expiresIn: '1h' }); // Token expires in 1 hour
+  res.json({ token });
+});
 
 //Get a club by id
 app.get('/api/club', async (req, res) => {
@@ -183,8 +214,6 @@ app.post('/api/query', async (req, res) => {
     const { playerName, playerId, chatInput } = req.body; // Destructure playerName and chatInput from the request body
     const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = sessionData;
 
-    console.log("TEST")
-
     const numberOfActivePlayers = activePlayers.length;
 
     const goalScorers = goals.map(goal => `${goal.goal_scorer_name} from ${goal.team_name}`).join(', ');
@@ -203,7 +232,7 @@ app.post('/api/query', async (req, res) => {
     //Get the player's context: 
     const playerContext = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
     //console.log("playerContext", playerContext.data)
-    console.log("assignPersonality(playerId)", assignPersonality(playerId))
+    //console.log("assignPersonality(playerId)", assignPersonality(playerId))
 
     try {
         const completion = await openai.chat.completions.create({
@@ -305,10 +334,10 @@ app.get('/api/sse-frames', (req, res) => {
                   }
               ],
           });
-          console.log("TEST",completion.choices[0].message.content)
+          //console.log("TEST",completion.choices[0].message.content)
 
           sessionData['matchDigest'] = completion.choices[0].message.content;
-          console.log("sessionData['matchDigest']", sessionData['matchDigest'])
+          //console.log("sessionData['matchDigest']", sessionData['matchDigest'])
         } catch (error) {
             console.error('Error querying OpenAI API:', error);
             res.status(500).json({ error: 'Error querying OpenAI API', details: error.message });
@@ -495,13 +524,13 @@ app.get('/api/recent-fixture', async (req, res) => {
 
   try {
       const tournamentData = await graphqlClient.request(tournamentQuery); // Use dynamic query    
-      console.log("tournamentData", tournamentData.clubs[0].clubFixtures[0])
+      //console.log("tournamentData", tournamentData.clubs[0].clubFixtures[0])
       const fixture = tournamentData.clubs[0].clubFixtures[0].fixture
       const tournamentId = fixture.tournamentId
       const roundIndex = fixture.roundIndex
       const fixtureIndex = fixture.fixtureIndex
       const matchId = tournamentId+"-"+roundIndex+"-"+fixtureIndex
-      console.log("matchId", matchId)
+      //console.log("matchId", matchId)
 
       res.json(matchId);
   } catch (error) {
@@ -532,6 +561,41 @@ app.get('/api/club-players-fixture', async (req, res) => {
     matchId: matchId, 
     clubPlayers: clubPlayers.data.clubs[0].registeredPlayers});
 })
+
+const authenticateToken = (req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1]; // Get token from Authorization header
+  console.log("TOKEN", token)
+
+  if (!token) return res.sendStatus(401); // No token, unauthorized
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403); // Invalid token, forbidden
+    req.user = user; // Save user info to request
+    next(); // Proceed to the next middleware or route handler
+  });
+};
+
+// Endpoint to log user inputs
+app.post('/api/log-input', async (req, res) => {
+  let walletAddress = req.body.walletAddress
+  let clubId = req.body.clubId
+  let message = req.body.message
+  console.log("DB TEST")
+  try {
+    console.log("DB TEST")
+    const userInput = new UserInput({ walletAddress, clubId, message });
+    await userInput.save(); // Save to the database
+    console.log('User input logged:', userInput); // Log the saved input
+    res.status(201).json({ message: 'User input logged successfully' });
+  } catch (error) {
+    console.error('Error logging user input:', error);
+    res.status(500).json({ error: 'Error logging user input', details: error.message });
+  }
+});
+
+// Protect your API routes
+app.use('/api', authenticateToken); // Apply the middleware to all routes starting with /api
+
 
 // Start the server
 app.listen(PORT, () => {

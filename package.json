@@ -22,7 +22,9 @@
     "eventsource": "^3.0.2",
     "express": "^4.21.2",
     "graphql-request": "^7.1.2",
-    "mongoose": "^8.9.5",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.13.0",
+    "mongoose": "^8.10.1",
     "openai": "^4.78.1"
   },
   "devDependencies": {
