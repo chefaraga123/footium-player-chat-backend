@@ -97,11 +97,31 @@ const assignPersonality = (playerId) => {
 app.post('/api/authenticate', (req, res) => {
   const { walletAddress } = req.body; // Get the wallet address from the request body
 
-  // Here you can add additional checks, e.g., verify the wallet address
-
   // Create a token
   const token = jwt.sign({ walletAddress }, JWT_SECRET, { expiresIn: '1h' }); // Token expires in 1 hour
   res.json({ token });
+});
+
+// Example function to handle match-done logic
+const getMatchDone = async (matchId) => {
+    // Your logic to fetch match data
+    // This could involve querying a database or another service
+};
+
+app.get('/api/match-done', async (req, res) => {
+  const matchId = req.query.matchId;
+  console.log("matchId", matchId)
+
+  const dynamicQuery = gql`
+  query {
+    match(where: {id:"${matchId}"}) {
+      id
+    }
+  }
+  `;
+  console.log("dynamicQuery", dynamicQuery)
+  const matchDone = await graphqlClient.request(dynamicQuery);
+  res.json(matchDone);
 });
 
 //Get a club by id
@@ -132,6 +152,7 @@ app.get('/api/club', async (req, res) => {
 
 app.get('/api/set-fixture', async (req, res) => {
   const fixtureId = req.query.id; // Get user input for ID from query parameters
+  console.log("fixtureId", fixtureId);
   sessionData['fixtureId'] = fixtureId;
   res.json({ message: 'Fixture ID set successfully' });
 });
@@ -281,8 +302,8 @@ app.get('/api/sse-frames', (req, res) => {
     }
 
     // Note: a match-id: tournamentId-roundIndex-fixtureIndex
-    const url_match_frames = `${matchEndpoint}/api/sse/match_frames/${matchId}`;
-
+    const url_match_frames = `${matchEndpoint}/match_frames/${matchId}`;
+    console.log("url_match_frames", url_match_frames)
     // Create an EventSource-like connection
     const eventSource = new EventSource(url_match_frames);
     let messageCount = 0; // Initialize a counter for received messages
@@ -317,6 +338,8 @@ app.get('/api/sse-frames', (req, res) => {
               Player: ${event.playerInPossession}`;
         }).join('\n'); // Join with newlines for better readability
 
+        console.log("sequentialEvents", sequentialEvents)
+
         const message = `   
                     digest this passage of play, abstracted from a football match into a coherent narrative:
                     ${sequentialEvents}. Insert the following context into the narrative:
@@ -334,7 +357,7 @@ app.get('/api/sse-frames', (req, res) => {
                   }
               ],
           });
-          //console.log("TEST",completion.choices[0].message.content)
+          console.log("TEST",completion.choices[0].message.content)
 
           sessionData['matchDigest'] = completion.choices[0].message.content;
           //console.log("sessionData['matchDigest']", sessionData['matchDigest'])
@@ -367,6 +390,7 @@ app.get('/api/sse-frames', (req, res) => {
 
 // SSE endpoint handler
 app.get('/api/sse-partial', (req, res) => {
+  console.log("sse-partial")
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -376,8 +400,8 @@ app.get('/api/sse-partial', (req, res) => {
     return res.status(400).json({ error: 'Match ID is required.' });
   }
 
-  const url_partial_match = `https://uat-a5c70ab25f1503bd.api.footium.club/api/sse/partial_match/${matchId}`;
-
+  const url_partial_match = `${matchEndpoint}/partial_match/${matchId}`;
+  console.log("url_partial_match", url_partial_match)
   // Create an EventSource-like connection
   const eventSource = new EventSource(url_partial_match);
   let messageCount = 0; // Initialize a counter for received messages
@@ -510,7 +534,7 @@ app.get('/api/recent-fixture', async (req, res) => {
     clubs(where: {id: {equals: ${clubId}}}) {
       clubFixtures(
         orderBy: { fixtureId: desc }
-        take: 22
+        take: 23
       ) {
         fixture {
           tournamentId
@@ -524,19 +548,54 @@ app.get('/api/recent-fixture', async (req, res) => {
 
   try {
       const tournamentData = await graphqlClient.request(tournamentQuery); // Use dynamic query    
-      //console.log("tournamentData", tournamentData.clubs[0].clubFixtures[0])
-      const fixture = tournamentData.clubs[0].clubFixtures[0].fixture
-      const tournamentId = fixture.tournamentId
-      const roundIndex = fixture.roundIndex
-      const fixtureIndex = fixture.fixtureIndex
-      const matchId = tournamentId+"-"+roundIndex+"-"+fixtureIndex
-      //console.log("matchId", matchId)
+      console.log("tournamentData", tournamentData.clubs[0].clubFixtures);
 
-      res.json(matchId);
-  } catch (error) {
-      console.error('Error querying GraphQL API:', error);
-      res.status(500).json({ error: 'Error querying GraphQL API', details: error.message });
-  }
+      // Loop through each fixture to construct matchId
+      const validMatches = []; // Array to store valid matches
+      const matchIds = await Promise.all(tournamentData.clubs[0].clubFixtures.map(async (fixture) => {
+          const { tournamentId, roundIndex, fixtureIndex } = fixture.fixture; // Destructure the fixture object
+          const matchId = `${tournamentId}-${roundIndex}-${fixtureIndex}`; // Construct matchId
+
+          const dynamicQuery = gql`
+          query {
+            match(where: {id:"${matchId}"}) {
+              id
+            }
+          }
+          `;
+          
+          // Await the request to ensure it resolves before moving forward
+          const matchDone = await graphqlClient.request(dynamicQuery);
+          
+          console.log("matchDone", matchDone);
+          
+          // Check if matchDone is valid (not null)
+          if (matchDone && matchDone.match) {
+              validMatches.push({ tournamentId, fixtureIndex, matchId }); // Store valid match details
+          }
+          
+          return matchId; // Return the matchId after the request is resolved
+      }));
+
+      // Determine the valid match with the highest tournamentId and fixtureIndex
+      if (validMatches.length > 0) {
+          const highestMatch = validMatches.reduce((prev, current) => {
+              // Compare tournamentId and fixtureIndex
+              if (current.tournamentId > prev.tournamentId || 
+                  (current.tournamentId === prev.tournamentId && current.fixtureIndex > prev.fixtureIndex)) {
+                  return current; // Return the current match if it's higher
+              }
+              return prev; // Otherwise, return the previous match
+          }); 
+
+      console.log("Highest Valid Match:", highestMatch.matchId);
+      res.json(`${highestMatch.matchId}`);
+    } else {
+        console.log("No valid matches found.");
+    }
+} catch (error) {
+    console.error('Error fetching tournament data:', error);
+}
 });
 
 
@@ -545,8 +604,9 @@ app.get('/api/club-players-fixture', async (req, res) => {
   const clubId = req.query.clubId;
 
   const matchResponse = await axios.get(`${apiEndpoint}/api/recent-fixture?clubId=${clubId}`);
+  console.log("matchResponse", matchResponse.data);
   const matchId = matchResponse.data; // Adjust based on the actual response structure
-
+  console.log("matchId", matchId);
   const clubPlayers = await axios.get(`${apiEndpoint}/api/club-players?id=${clubId}`);
   
   try {
@@ -580,9 +640,9 @@ app.post('/api/log-input', async (req, res) => {
   let walletAddress = req.body.walletAddress
   let clubId = req.body.clubId
   let message = req.body.message
-  console.log("DB TEST")
+
   try {
-    console.log("DB TEST")
+
     const userInput = new UserInput({ walletAddress, clubId, message });
     await userInput.save(); // Save to the database
     console.log('User input logged:', userInput); // Log the saved input
