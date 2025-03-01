@@ -602,13 +602,13 @@ app.get('/api/recent-fixture', async (req, res) => {
 
 
 app.get('/api/club-players-fixture', async (req, res) => {
-  
+  console.log("apiEndpoint", apiEndpoint)
   const clubId = req.query.clubId;
 
   const matchResponse = await axios.get(`${apiEndpoint}/api/recent-fixture?clubId=${clubId}`);
-  console.log("matchResponse", matchResponse.data);
+
   const matchId = matchResponse.data; // Adjust based on the actual response structure
-  console.log("matchId", matchId);
+
   const clubPlayers = await axios.get(`${apiEndpoint}/api/club-players?id=${clubId}`);
   
   try {
