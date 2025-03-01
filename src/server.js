@@ -102,11 +102,6 @@ app.post('/api/authenticate', (req, res) => {
   res.json({ token });
 });
 
-// Example function to handle match-done logic
-const getMatchDone = async (matchId) => {
-    // Your logic to fetch match data
-    // This could involve querying a database or another service
-};
 
 app.get('/api/match-done', async (req, res) => {
   const matchId = req.query.matchId;
