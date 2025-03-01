@@ -232,7 +232,7 @@ app.get('/api/player', async (req, res) => {
 
 // Define the /api/query route
 app.post('/api/query', async (req, res) => {
-    const { playerName, playerId, chatInput } = req.body; // Destructure playerName and chatInput from the request body
+    const { playerName, playerId, chatInput, playerClubId } = req.body; // Destructure playerName and chatInput from the request body
     const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = sessionData;
 
     const numberOfActivePlayers = activePlayers.length;
@@ -254,6 +254,11 @@ app.post('/api/query', async (req, res) => {
     const playerContext = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
     //console.log("playerContext", playerContext.data)
     //console.log("assignPersonality(playerId)", assignPersonality(playerId))
+    console.log(
+      "player club id", playerClubId
+    )
+    const clubResponse = await axios.get(`${apiEndpoint}/api/club?id=${playerClubId}`);
+    const clubName =  clubResponse.data.clubs[0].name
 
     try {
         const completion = await openai.chat.completions.create({
@@ -263,6 +268,8 @@ app.post('/api/query', async (req, res) => {
                   You are a football player named ${playerName} and you have just finished a match. 
                   You are now going to answer a series of questions about the match.
                   Your personality is ${assignPersonality(playerId).description}.
+                  
+                  You play for ${clubName}. Ensure any responses are in view of the fact that you play for this club. 
 
                   There are ${goals.length} goals in the match.
                   There are ${cards.length} cards in the match.
