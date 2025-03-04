@@ -105,8 +105,8 @@ app.post('/api/authenticate', (req, res) => {
 
 app.get('/api/match-done', async (req, res) => {
   const matchId = req.query.matchId;
-  console.log("matchId", matchId)
 
+  
   const dynamicQuery = gql`
   query {
     match(where: {id:"${matchId}"}) {
@@ -114,7 +114,7 @@ app.get('/api/match-done', async (req, res) => {
     }
   }
   `;
-  console.log("dynamicQuery", dynamicQuery)
+
   const matchDone = await graphqlClient.request(dynamicQuery);
   res.json(matchDone);
 });
@@ -447,8 +447,8 @@ app.get('/api/sse-partial', (req, res) => {
       const players = data.state.players;
       for (const playerId of Object.keys(players)){
           const response = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
-          //console.log("player-context",response.data.players[0])
-            sessionData['activePlayers'].push(
+
+          sessionData['activePlayers'].push(
             {
               "playerName": response.data.players[0].fullName,
               "playerId": playerId,
