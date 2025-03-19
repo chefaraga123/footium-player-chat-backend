@@ -60,18 +60,7 @@ const graphqlClient = new GraphQLClient(`${graphQLEndpoint}`);
 
 // Define a session store at the top level
 let sessionData = {
-    users: {},
-    homeTeamId: '',
-    awayTeamId: '',
-    homeTeamName: '',
-    awayTeamName: '',
-    goals: [],
-    cards: [],
-    activePlayers: [],
-    matchDigest: '',
-    fixtureId: '',
-    homeTeamWins: 0,
-    awayTeamWins: 0
+    users: {}
 };
 
 // Define personalities
@@ -181,10 +170,9 @@ app.get('/api/club', async (req, res) => {
 app.get('/api/set-fixture', async (req, res) => {
   const { id, userId } = req.query; // Get user input for ID from query parameters
   console.log("userId inside set-fixture", userId)
-  console.log("fixtureId", id);
-  sessionData['fixtureId'] = id;
+  
   sessionData.users[userId]['fixtureId'] = id;
-  console.log("sessionData", sessionData)
+
   res.json({ message: 'Fixture ID set successfully' });
 });
 
@@ -272,8 +260,6 @@ app.post('/api/query', async (req, res) => {
 
     const { goals, cards, activePlayers, matchDigest, homeTeamWins, awayTeamWins } = userData;
 
-    const numberOfActivePlayers = activePlayers.length;
-
     const goalScorers = goals.map(goal => `${goal.goal_scorer_name} from ${goal.team_name}`).join(', ');
     const goalCounts = goals.reduce((acc, goal) => {
         acc[goal.team_name] = (acc[goal.team_name] || 0) + 1; // Increment the count for the team
@@ -322,16 +308,12 @@ app.post('/api/query', async (req, res) => {
                 { role: "user", content: chatInput }, // Use chatInput for the user's question
             ],
         });
-        //console.log("completion.choices[0].message.content", completion.choices[0].message.content)
+        console.log("completion.choices[0].message.content", completion.choices[0].message.content)
         res.json({ output: completion.choices[0].message.content });
     } catch (error) {
         console.error('Error querying OpenAI API:', error);
         res.status(500).json({ error: 'Error querying OpenAI API', details: error.message });
     }
-});
-
-app.get('/api/match-digest', async (req, res) => {
-  res.json({ matchDigest: sessionData['matchDigest'] });
 });
 
 // Define the /api/sse endpoint
@@ -409,12 +391,9 @@ app.get('/api/sse-frames', (req, res) => {
                   }
               ],
           });
-          console.log("TEST",completion.choices[0].message.content)
 
-          sessionData['matchDigest'] = completion.choices[0].message.content;
           sessionData.users[userId]['matchDigest'] = completion.choices[0].message.content;
-          console.log("digest over")
-          //console.log("sessionData['matchDigest']", sessionData['matchDigest'])
+
         } catch (error) {
             console.error('Error querying OpenAI API:', error);
             res.status(500).json({ error: 'Error querying OpenAI API', details: error.message });
@@ -445,18 +424,19 @@ app.get('/api/sse-frames', (req, res) => {
 // SSE endpoint handler
 app.get('/api/sse-partial', (req, res) => {
   const { userId } = req.query; // Get user input for ID from query parameters
-  console.log("sse-partial", userId)
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  const matchId = sessionData['fixtureId'];
+  
+  const matchId = sessionData.users[userId]['fixtureId'];
 
   if (!matchId) {
     return res.status(400).json({ error: 'Match ID is required.' });
   }
 
   const url_partial_match = `${matchEndpoint}/partial_match/${matchId}`;
-  console.log("url_partial_match", url_partial_match)
+
   // Create an EventSource-like connection
   const eventSource = new EventSource(url_partial_match);
   let messageCount = 0; // Initialize a counter for received messages
@@ -466,17 +446,12 @@ app.get('/api/sse-partial', (req, res) => {
   const data = JSON.parse(event.data); // Parse the incoming JSON data
 
       if (data){
-        sessionData['homeTeamWins'] = data.state.homeTeam.stats.wins
-        //console.log(sessionData.users)
         sessionData.users[userId]['homeTeamWins'] = data.state.homeTeam.stats.wins
-        sessionData['awayTeamWins'] = data.state.awayTeam.stats.wins
         sessionData.users[userId]['awayTeamWins'] = data.state.awayTeam.stats.wins
 
         const homeTeamId = data.state.homeTeam.clubId;
         const awayTeamId = data.state.awayTeam.clubId;
 
-        sessionData['homeTeamId'] = homeTeamId;
-        sessionData['awayTeamId'] = awayTeamId;
         sessionData.users[userId]['homeTeamId'] = homeTeamId;
         sessionData.users[userId]['awayTeamId'] = awayTeamId;
 
@@ -487,8 +462,6 @@ app.get('/api/sse-partial', (req, res) => {
         const awayTeamResponse = await axios.get(`${apiEndpoint}/api/club?id=${awayTeamId}`);
         const awayTeamName = awayTeamResponse.data.clubs[0].name;
 
-        sessionData['homeTeamName'] = homeTeamName;
-        sessionData['awayTeamName'] = awayTeamName;
         sessionData.users[userId]['homeTeamName'] = homeTeamName;
         sessionData.users[userId]['awayTeamName'] = awayTeamName;
 
@@ -510,13 +483,6 @@ app.get('/api/sse-partial', (req, res) => {
         try {
           const response = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
 
-          sessionData['activePlayers'].push(
-            {
-              "playerName": response.data.players[0].fullName,
-              "playerId": playerId,
-              "playerClub": response.data.players[0].club.id
-            }
-          )
           sessionData.users[userId]['activePlayers'].push(
             {
               "playerName": response.data.players[0].fullName,
@@ -571,12 +537,8 @@ app.get('/api/sse-partial', (req, res) => {
         }
       }
 
-      sessionData['goals'] = goals;
-      sessionData['cards'] = cards;
       sessionData.users[userId]['goals'] = goals;
       sessionData.users[userId]['cards'] = cards;
-      console.log("partial-end")
-      //console.log("sessionData.users[userId]", sessionData.users[userId])
       // Send the received data to the client, which is part of the node.js response object
       res.write(`data: goals:\n\n ${JSON.stringify(goals)}\n\ncards:\n ${JSON.stringify(cards)}`); // Send valid data to the client
 
@@ -627,8 +589,8 @@ app.get('/api/recent-fixture', async (req, res) => {
 
   try {
       const tournamentData = await graphqlClient.request(tournamentQuery); // Use dynamic query    
-      console.log("tournamentData", tournamentData.clubs[0].clubFixtures);
 
+      
       // Loop through each fixture to construct matchId
       const validMatches = []; // Array to store valid matches
       const matchIds = await Promise.all(tournamentData.clubs[0].clubFixtures.map(async (fixture) => {
@@ -645,9 +607,7 @@ app.get('/api/recent-fixture', async (req, res) => {
           
           // Await the request to ensure it resolves before moving forward
           const matchDone = await graphqlClient.request(dynamicQuery);
-          
-          console.log("matchDone", matchDone);
-          
+      
           // Check if matchDone is valid (not null)
           if (matchDone && matchDone.match) {
               validMatches.push({ tournamentId, fixtureIndex, matchId }); // Store valid match details
@@ -679,14 +639,14 @@ app.get('/api/recent-fixture', async (req, res) => {
 
 
 app.get('/api/club-players-fixture', async (req, res) => {
-  console.log("apiEndpoint", apiEndpoint)
-  const { clubId, userId } = req.query;
-  console.log("userId", userId)
 
+  const { clubId, userId } = req.query;
+
+  
   const matchResponse = await axios.get(`${apiEndpoint}/api/recent-fixture?clubId=${clubId}`);
 
   const matchId = matchResponse.data; // Adjust based on the actual response structure
-  console.log("matchId", matchId)
+
   const clubPlayers = await axios.get(`${apiEndpoint}/api/club-players?id=${clubId}`);
   
   try {
@@ -704,8 +664,8 @@ app.get('/api/club-players-fixture', async (req, res) => {
 
 const authenticateToken = (req, res, next) => {
   const token = req.headers['authorization']?.split(' ')[1]; // Get token from Authorization header
-  console.log("TOKEN", token)
 
+  
   if (!token) return res.sendStatus(401); // No token, unauthorized
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
