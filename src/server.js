@@ -37,7 +37,18 @@ const userInputSchema = new mongoose.Schema({
 const UserInput = mongoose.model('UserInput', userInputSchema);
 */
 
-app.use(cors());
+// CORS configuration
+const allowedOrigins = [
+    'http://localhost:3000', // Adjust the port if necessary
+    'https://www.footiumchat.com'
+];
+
+app.use(cors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'], // Specify allowed methods
+    credentials: true // Allow credentials if needed
+}));
+
 app.use(express.json());
 
 const openai = new OpenAI({
@@ -496,6 +507,7 @@ app.get('/api/sse-partial', (req, res) => {
       // Assuming data.state.players is an array of player objects
       const players = data.state.players;
       for (const playerId of Object.keys(players)){
+        try {
           const response = await axios.get(`${apiEndpoint}/api/player?playerId=${playerId}`);
 
           sessionData['activePlayers'].push(
@@ -512,6 +524,10 @@ app.get('/api/sse-partial', (req, res) => {
               "playerClub": response.data.players[0].club.id
             }
           )
+        } catch (error) {
+          console.error('Error querying API for player:', error);
+          res.status(500).json({ error: 'Error querying API for player', details: error.message });
+        }
       }
 
       for (const event of data.state.keyEvents) {
