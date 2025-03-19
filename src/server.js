@@ -456,7 +456,7 @@ app.get('/api/sse-partial', (req, res) => {
 
       if (data){
         sessionData['homeTeamWins'] = data.state.homeTeam.stats.wins
-        console.log(sessionData.users)
+        //console.log(sessionData.users)
         sessionData.users[userId]['homeTeamWins'] = data.state.homeTeam.stats.wins
         sessionData['awayTeamWins'] = data.state.awayTeam.stats.wins
         sessionData.users[userId]['awayTeamWins'] = data.state.awayTeam.stats.wins
@@ -560,7 +560,7 @@ app.get('/api/sse-partial', (req, res) => {
       sessionData.users[userId]['goals'] = goals;
       sessionData.users[userId]['cards'] = cards;
       console.log("partial-end")
-      console.log("sessionData.users[userId]", sessionData.users[userId])
+      //console.log("sessionData.users[userId]", sessionData.users[userId])
       // Send the received data to the client, which is part of the node.js response object
       res.write(`data: goals:\n\n ${JSON.stringify(goals)}\n\ncards:\n ${JSON.stringify(cards)}`); // Send valid data to the client
 
